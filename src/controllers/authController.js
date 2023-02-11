@@ -1,9 +1,7 @@
 import User from "../models/userModel.js";
 import logger from "../logger/logger.js";
-import sendEmail from "../utils/sendEmail.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import crypto from "crypto";
 
 // * @desc - SIGNUP CONTROLLER
 // * @method - POST
@@ -166,147 +164,6 @@ const getUser = async (req, res) => {
     }
 };
 
-// * @desc - FORGOT PASSWORD CONTROLLER
-// * @method - POST
-// * @route - /auth/forgot/password
-const forgotPassword = async (req, res) => {
-    const username = req.body.username;
-
-    // ! handle bad request
-    if (!username) {
-        logger.debug("Username not provided.");
-        res.status(400).json({
-            status: "error",
-            code: 400,
-            message: "Username is required.",
-        });
-    }
-
-    // ! get email from username
-    const user = await User.findOne({username: username});
-    if (user) {
-        const userEmail = user.email;
-
-        // ! generate resetToken
-        const resetToken = crypto.randomBytes(20).toString("hex");
-
-        // ! Hash and set resetPassword token
-        const hashedToken = crypto
-            .createHash("sha256")
-            .update(resetToken)
-            .digest("hex");
-
-        // ! save user resetPasswordToken and resetPasswordExpiration
-        user.resetPasswordToken = hashedToken;
-        user.resetPasswordExpiration = Date.now() + 30 * 60 * 1000;
-        try {
-            await user.save();
-        } catch (err) {
-            logger.debug(
-                "Failed to save resetPasswordToken and resetPasswordExpiration"
-            );
-            res.status(500).json({
-                status: "error",
-                code: 500,
-                message: "Internal server error",
-            });
-        }
-
-        // ! reset url
-        const resetUrl = `${req.protocol}://${req.get(
-            "host"
-        )}/api/v1/auth/reset/password/${resetToken}`;
-
-        // ! create message to be sent
-        const message = `Your password reset link is as follows:\n\n${resetUrl} \n\n If you have not requested this, then please ignore it.`;
-
-        // ! send email
-        try {
-            await sendEmail({
-                email: userEmail,
-                subject: "Password recovery mail",
-                message,
-            });
-            res.status(200).json({
-                status: "success",
-                code: 200,
-                message: `Recovery instructions sent to ${userEmail}`,
-            });
-        } catch (err) {
-            logger.debug("Failed to send password recovery email.");
-            logger.error(err);
-            res.status(500).json({
-                status: "success",
-                code: 500,
-                message: "Internal server error",
-            });
-        }
-    } else {
-        logger.info("No user found with this username.");
-        res.status(404).json({
-            status: "error",
-            message: "No user found with this username.",
-        });
-    }
-};
-
-// * @desc - POST REST PASSWORD
-// * @method - PUT
-// * @route - auth/reset/password/:token
-const resetPassword = async (req, res) => {
-    const token = req.params.token;
-
-    const resetPasswordToken = crypto
-        .createHash("sha256")
-        .update(token)
-        .digest("hex");
-
-    // ! find the user to upadte its password
-    const user = await User.findOne({
-        resetPasswordToken: resetPasswordToken,
-        resetPasswordExpiration: {$gt: Date.now()},
-    });
-
-    console.log(user);
-
-    // ! if user found update password
-    if (user) {
-        try {
-            // ! hash password
-            const salt = bcrypt.genSaltSync(10);
-            const hashPassword = bcrypt.hashSync(req.body.password, salt);
-
-            const userBody = {
-                password: hashPassword,
-                resetPasswordToken: undefined,
-                resetPasswordExpire: undefined,
-            };
-            await User.findByIdAndUpdate(user._id, userBody, {new: true});
-            logger.debug("Password updated successfully.");
-            res.status(200).json({
-                status: "success",
-                code: 200,
-                message:
-                    "Password updated successfully. Login with new password.",
-            });
-        } catch (err) {
-            logger.debug("Failed to update password due to exception.");
-            logger.error(err);
-            res.status(500).json({
-                status: "error",
-                code: 500,
-                message: "Internal server error.",
-            });
-        }
-    } else {
-        res.status(400).json({
-            status: "error",
-            code: 400,
-            message: "Password reset token is invalid.",
-        });
-    }
-};
-
 // ! ---------- FUNCTIONS ----------
 // * Generate JWT token
 const generateToken = (id) => {
@@ -320,6 +177,4 @@ export {
     loginUser,
     logOutUser,
     getUser,
-    forgotPassword,
-    resetPassword,
 };
